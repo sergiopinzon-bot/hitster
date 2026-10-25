@@ -144,10 +144,18 @@ function begin(mode){
   $("again").classList.add("hidden");
   state = "loading"; $("play").textContent = "…"; msg("Preparando…");
   if (start === null) {
-    // primera vez: cargar en silencio, leer la duración y saltar a un punto al azar
+    // primera vez: cargar en silencio, esperar a que suene, leer la duración y saltar a un punto al azar
     waitSeek = true;
     player.mute();
     player.loadVideoById({ videoId: videoId, startSeconds: 0 });
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries++;
+      const d = player.getDuration ? player.getDuration() : 0;
+      const t = player.getCurrentTime ? player.getCurrentTime() : 0;
+      if (d > 0 && t > 0.2) { clearInterval(poll); launch(d); }
+      else if (tries > 60) { clearInterval(poll); stopAll(); msg("No se pudo cargar la canción. Revisa la conexión y vuelve a tocar ▶."); }
+    }, 250);
     return;
   }
   if (mode === "new") start = pickStart(player.getDuration());
@@ -155,15 +163,16 @@ function begin(mode){
   startCountdown();
 }
 
+function launch(d){
+  if (!waitSeek) return;
+  waitSeek = false;
+  start = pickStart(d);
+  player.seekTo(start, true);
+  player.playVideo();
+  setTimeout(() => { player.unMute(); startCountdown(); }, 400);
+}
+
 function onState(e){
-  if (e.data === YT.PlayerState.PLAYING && waitSeek) {
-    const d = player.getDuration();
-    if (!d) return;                 // aún sin duración; esperar otro evento
-    waitSeek = false;
-    start = pickStart(d);
-    player.seekTo(start, true);
-    setTimeout(() => { player.unMute(); startCountdown(); }, 350);
-  }
   if (e.data === YT.PlayerState.ENDED && state === "playing") finish();
 }
 
