@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#14112a">
+<title>Hitster casero</title>
+<style>
+  :root{
+    --bg:#14112a; --bg2:#231d4a; --ink:#ffffff; --muted:#b9b3e6;
+    --accent:#ff3d7f; --accent2:#ffb627; --ring:#3a3270;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(120% 90% at 50% 0%, var(--bg2), var(--bg));
+    color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100dvh; padding:24px 16px; text-align:center; -webkit-tap-highlight-color:transparent;
+  }
+  h1{font-size:1.1rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+  .carta{font-size:2.6rem;font-weight:800;margin:0 0 28px}
+  .stage{position:relative;width:240px;height:240px;margin:0 auto 26px}
+  svg.ring{position:absolute;inset:0;transform:rotate(-90deg)}
+  .ring circle{fill:none;stroke-width:14}
+  .ring .bgc{stroke:var(--ring)}
+  .ring .fg{stroke:url(#grad);stroke-linecap:round;transition:stroke-dashoffset .25s linear}
+  button.play{
+    position:absolute; inset:22px; border-radius:50%; border:0; cursor:pointer;
+    background:linear-gradient(145deg,var(--accent),#c2185b); color:#fff;
+    font-size:4.2rem; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 12px 40px rgba(255,61,127,.35); transition:transform .1s;
+  }
+  button.play:active{transform:scale(.96)}
+  button.play[disabled]{opacity:.55;cursor:default}
+  .count{font-size:3.4rem;font-weight:800;font-variant-numeric:tabular-nums}
+  .msg{min-height:3em;color:var(--muted);font-size:1.05rem;max-width:340px;margin:0 auto 18px;line-height:1.4}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .sec{background:transparent;border:2px solid var(--ring);color:var(--ink);border-radius:999px;padding:12px 18px;font-size:1rem;cursor:pointer}
+  .sec:active{background:var(--ring)}
+  .hidden{display:none!important}
+  /* El reproductor existe (YouTube lo exige visible en el DOM) pero queda tapado */
+  #playerWrap{position:fixed;left:0;bottom:0;width:200px;height:200px;z-index:1;opacity:.01;pointer-events:none}
+  #cover{position:fixed;left:0;bottom:0;width:200px;height:200px;z-index:2;background:var(--bg)}
+  main{position:relative;z-index:3}
+  form.ir{display:flex;gap:8px;justify-content:center;margin-top:22px}
+  form.ir input{width:110px;font-size:1.3rem;text-align:center;padding:10px;border-radius:12px;border:2px solid var(--ring);background:#0e0b20;color:#fff}
+  form.ir button{font-size:1.1rem;border-radius:12px;border:0;background:var(--accent2);color:#14112a;font-weight:700;padding:10px 16px;cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+  <h1>Hitster casero</h1>
+  <div class="carta" id="carta">Carta —</div>
+
+  <div class="stage">
+    <svg class="ring" viewBox="0 0 240 240" aria-hidden="true">
+      <defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ffb627"/><stop offset="1" stop-color="#ff3d7f"/></linearGradient></defs>
+      <circle class="bgc" cx="120" cy="120" r="110"/>
+      <circle class="fg" id="arc" cx="120" cy="120" r="110"/>
+    </svg>
+    <button class="play" id="play" aria-label="Reproducir" disabled>▶</button>
+  </div>
+
+  <p class="msg" id="msg">Cargando…</p>
+
+  <div class="row hidden" id="again">
+    <button class="sec" id="repeat">↺ Repetir fragmento</button>
+    <button class="sec" id="other">🎲 Otro fragmento</button>
+  </div>
+
+  <form class="ir" id="ir">
+    <input id="num" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="N.º" aria-label="Número de carta">
+    <button type="submit">Ir</button>
+  </form>
+</main>
+
+<div id="playerWrap"><div id="player"></div></div>
+<div id="cover"></div>
+
+<script src="canciones.js"></script>
+<script>
+const DUR = 30;               // segundos que suena cada fragmento
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let carta = (params.get("c") || "").replace(/\D/g, "");
+if (carta) carta = carta.padStart(3, "0");
+const videoId = CANCIONES[carta];
+
+const arc = $("arc"), R = 110, C = 2 * Math.PI * R;
+arc.style.strokeDasharray = C; arc.style.strokeDashoffset = C;
+
+let player, ready = false, state = "idle", start = null, timer = null, tick = null, t0 = 0, waitSeek = false;
+
+$("carta").textContent = carta ? "Carta " + carta : "Elige una carta";
+if (!carta) msg("Escanea un código QR o escribe el número de la carta.");
+else if (!videoId) msg("No existe la carta " + carta + ".");
+
+$("ir").addEventListener("submit", e => {
+  e.preventDefault();
+  const n = $("num").value.replace(/\D/g, "");
+  if (n) location.search = "?c=" + n.padStart(3, "0");
+});
+
+function msg(t){ $("msg").textContent = t; }
+function setArc(f){ arc.style.strokeDashoffset = C * (1 - f); }
+
+// Carga la API de YouTube
+if (videoId) {
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+}
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player("player", {
+    width: 200, height: 200,
+    host: "https://www.youtube-nocookie.com",
+    playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1 },
+    events: {
+      onReady: () => { ready = true; $("play").disabled = false; msg("Toca ▶ para escuchar 30 segundos."); },
+      onStateChange: onState,
+      onError: e => { stopAll(); msg("Este video no se puede reproducir aquí (error " + e.data + "). Avísale a Sergio: carta " + carta + "."); $("play").disabled = true; }
+    }
+  });
+};
+
+function pickStart(d){
+  if (!d || d < 50) return 0;
+  const lo = Math.max(10, d * 0.15), hi = Math.max(lo + 1, d - DUR - 10);
+  return Math.floor(lo + Math.random() * (hi - lo));
+}
+
+$("play").addEventListener("click", () => {
+  if (!ready || state !== "idle") return;
+  begin(start === null ? "new" : "same");
+});
+$("repeat").addEventListener("click", () => { if (state === "idle") begin("same"); });
+$("other").addEventListener("click", () => { if (state === "idle") begin("new"); });
+
+function begin(mode){
+  clearTimers();
+  $("again").classList.add("hidden");
+  state = "loading"; $("play").textContent = "…"; msg("Preparando…");
+  if (start === null) {
+    // primera vez: cargar en silencio, leer la duración y saltar a un punto al azar
+    waitSeek = true;
+    player.mute();
+    player.loadVideoById({ videoId: videoId, startSeconds: 0 });
+    return;
+  }
+  if (mode === "new") start = pickStart(player.getDuration());
+  player.unMute(); player.seekTo(start, true); player.playVideo();
+  startCountdown();
+}
+
+function onState(e){
+  if (e.data === YT.PlayerState.PLAYING && waitSeek) {
+    const d = player.getDuration();
+    if (!d) return;                 // aún sin duración; esperar otro evento
+    waitSeek = false;
+    start = pickStart(d);
+    player.seekTo(start, true);
+    setTimeout(() => { player.unMute(); startCountdown(); }, 350);
+  }
+  if (e.data === YT.PlayerState.ENDED && state === "playing") finish();
+}
+
+function startCountdown(){
+  state = "playing"; $("play").innerHTML = '<span class="count" id="cnt">30</span>';
+  msg("Escucha…"); t0 = Date.now();
+  tick = setInterval(() => {
+    const el = (Date.now() - t0) / 1000;
+    setArc(Math.min(1, el / DUR));
+    const c = $("cnt"); if (c) c.textContent = Math.max(0, Math.ceil(DUR - el));
+  }, 200);
+  timer = setTimeout(finish, DUR * 1000);
+}
+
+function finish(){
+  stopAll();
+  msg("¡Tiempo! Ubica la carta en tu línea de tiempo.");
+  $("again").classList.remove("hidden");
+}
+function clearTimers(){ clearTimeout(timer); clearInterval(tick); }
+function stopAll(){
+  clearTimers();
+  try { player.pauseVideo(); } catch(_) {}
+  state = "idle"; setArc(0); $("play").textContent = "▶";
+}
+</script>
+</body>
+</html>
