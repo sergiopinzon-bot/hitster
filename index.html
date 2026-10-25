@@ -116,7 +116,7 @@ if (videoId) {
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player("player", {
     width: 200, height: 200,
-    host: "https://www.youtube-nocookie.com",
+    host: "https://www.youtube.com",   // youtube.com (no nocookie) para que YouTube Premium reconozca la sesión y no muestre anuncios
     playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1, iv_load_policy: 3, modestbranding: 1 },
     events: {
       onReady: () => { ready = true; $("play").disabled = false; msg("Toca ▶ para escuchar 30 segundos."); },
